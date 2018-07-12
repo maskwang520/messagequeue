@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
 //这是评测程序的一个demo版本，其评测逻辑与实际评测程序基本类似，但是比实际评测简单很多
 //该评测程序主要便于选手在本地优化和调试自己的程序
 
-public class DemoTester {
+public class DemoTest {
 
     public static void main(String args[]) throws Exception {
         //评测相关配置
@@ -25,11 +25,11 @@ public class DemoTester {
         //正确性检测的次数
         int checkNum = 1000;
         //消费阶段的总队列数量
-        int checkQueueNum = 100;
+        int checkQueueNum = 16;
         //发送的线程数量
-        int sendTsNum = 3;
+        int sendTsNum = 5;
         //消费的线程数量
-        int checkTsNum = 3;
+        int checkTsNum = 5;
 
         ConcurrentMap<String, AtomicInteger> queueNumMap = new ConcurrentHashMap<>();
         for (int i = 0; i < queueNum; i++) {
@@ -97,6 +97,7 @@ public class DemoTester {
             }
             checks[i] = new Thread(new Consumer(queueStore, i, maxCheckTime, checkCounter, offsets));
         }
+
         for (int i = 0; i < sendTsNum; i++) {
             checks[i].start();
         }
@@ -107,7 +108,7 @@ public class DemoTester {
         System.out.printf("Check: %d ms Num: %d\n", checkEnd - checkStart, checkCounter.get());
 
         //评测结果
-        System.out.printf("Tps:%f\n", ((sendCounter.get() + checkCounter.get()) + 0.1) * 1000 / ((sendSend- sendStart) + (checkEnd- checkStart)));
+        System.out.printf("Tps:%f\n", ((sendCounter.get() + checkCounter.get() + indexCheckCounter.get()) + 0.1) * 1000 / ((sendSend- sendStart) + (checkEnd- checkStart) + (indexCheckEnd - indexCheckStart)));
     }
     static class Producer implements Runnable {
 
@@ -133,7 +134,7 @@ public class DemoTester {
                 try {
                     String queueName = "Queue-" + count % queueCounter.size();
                     synchronized (queueCounter.get(queueName)) {
-                        queueStore.put(queueName, String.valueOf(queueCounter.get(queueName).getAndIncrement()));
+                        queueStore.put(queueName, String.valueOf(queueCounter.get(queueName).getAndIncrement()).getBytes());
                     }
                 } catch (Throwable t) {
                     t.printStackTrace();
@@ -168,9 +169,10 @@ public class DemoTester {
                     String queueName = "Queue-" + random.nextInt(queueCounter.size());
                     int index = random.nextInt(queueCounter.get(queueName).get()) - 10;
                     if (index < 0) index = 0;
-                    Collection<String> msgs = queueStore.get(queueName, index, 10);
-                    for (String msg : msgs) {
-                        if (!msg.equals(String.valueOf(index++))) {
+                    Collection<byte[]> msgs = queueStore.get(queueName, index, 10);
+                    //System.out.println(queueCounter);
+                    for (byte[] msg : msgs) {
+                        if (!new String(msg).equals(String.valueOf(index++))) {
                             System.out.println("Check error");
                             System.exit(-1);
                         }
@@ -209,11 +211,11 @@ public class DemoTester {
                 try {
                     for (String queueName : pullOffsets.keySet()) {
                         int index = pullOffsets.get(queueName).get();
-                        Collection<String> msgs = queueStore.get(queueName, index, 10);
+                        Collection<byte[]> msgs = queueStore.get(queueName, index, 10);
                         if (msgs != null && msgs.size() > 0) {
                             pullOffsets.get(queueName).getAndAdd(msgs.size());
-                            for (String msg : msgs) {
-                                if (!msg.equals(String.valueOf(index++))) {
+                            for (byte[] msg : msgs) {
+                                if (!new String(msg).equals(String.valueOf(index++))) {
                                     System.out.println("Check error");
                                     System.exit(-1);
                                 }
@@ -221,6 +223,7 @@ public class DemoTester {
 
                             counter.addAndGet(msgs.size());
                         }
+
                         if (msgs == null || msgs.size() < 10) {
                             if (pullOffsets.get(queueName).get() != offsets.get(queueName).get()) {
                                 System.out.printf("Queue Number Error");
